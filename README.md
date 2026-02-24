@@ -149,7 +149,7 @@ Other noteworthy integrations include:
 [BashSupport-Pro]: https://www.bashsupport.com/manual/editor/formatter/
 [debian]: https://tracker.debian.org/pkg/golang-mvdan-sh
 [docker]: https://hub.docker.com/r/mvdan/shfmt/
-[dockerfmt]: https://github.com/reteps/dockerfmt
+[dockerfmt]: https://github.com/Unity-Billal-mesloub/dockerfmt
 [editorconfig]: https://editorconfig.org/
 [examples]: https://pkg.go.dev/mvdan.cc/sh/v3/syntax#pkg-examples
 [fedora]: https://packages.fedoraproject.org/pkgs/golang-mvdan-sh-3/shfmt/
@@ -157,13 +157,13 @@ Other noteworthy integrations include:
 [homebrew]: https://formulae.brew.sh/formula/shfmt
 [intellij-shellscript]: https://www.jetbrains.com/help/idea/shell-scripts.html
 [macports]: https://ports.macports.org/port/shfmt/details/
-[mdformat-shfmt]: https://github.com/hukkin/mdformat-shfmt
-[mdformat]: https://github.com/executablebooks/mdformat
+[mdformat-shfmt]: https://github.com/Unity-Billal-mesloub/mdformat-shfmt
+[mdformat]: https://github.com/Unity-Billal-mesloub/mdformat
 [micro]: https://micro-editor.github.io/
 [mksh]: http://www.mirbsd.org/mksh.htm
-[modd]: https://github.com/cortesi/modd
+[modd]: https://github.com/Unity-Billal-mesloub/modd
 [mvdan-sh]: https://www.npmjs.com/package/mvdan-sh
-[neoformat]: https://github.com/sbdchd/neoformat
+[neoformat]: https://github.com/Unity-Billal-mesloub/neoformat
 [nixos]: https://github.com/NixOS/nixpkgs/blob/HEAD/pkgs/tools/text/shfmt/default.nix
 [OpenSUSE]: https://build.opensuse.org/package/show/openSUSE:Factory/shfmt
 [posix shell]: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html
