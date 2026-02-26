@@ -555,8 +555,8 @@ var fileTests = []fileTestCase{
 				litWord("echo"),
 				word(litParamExp("i")),
 			)),
-		}, LangBash),
-		langErr2("1:5: c-style fors are a bash feature; tried parsing as LANG", LangPOSIX|LangMirBSDKorn),
+		}, LangBash|LangZsh),
+		langErr2("1:5: c-style fors are a bash/zsh feature; tried parsing as LANG", LangPOSIX|LangMirBSDKorn),
 	),
 	fileTest(
 		[]string{
@@ -2558,7 +2558,7 @@ var fileTests = []fileTestCase{
 		[]string{`${signals[(i)QUIT]}`},
 		langFile(&ParamExp{
 			Param: lit("signals"),
-			Index: &ZshSubFlags{
+			Index: &FlagsArithm{
 				Flags: lit("i"),
 				X:     litWord("QUIT"),
 			},
@@ -2569,7 +2569,7 @@ var fileTests = []fileTestCase{
 		[]string{`${ZSH_VERSION[(s:.:w)2]}`},
 		langFile(&ParamExp{
 			Param: lit("ZSH_VERSION"),
-			Index: &ZshSubFlags{
+			Index: &FlagsArithm{
 				Flags: lit("s:.:w"),
 				X:     litWord("2"),
 			},
@@ -2580,9 +2580,18 @@ var fileTests = []fileTestCase{
 		langFile(&ParamExp{
 			Short: true,
 			Param: lit("foo"),
-			Index: &ZshSubFlags{
+			Index: &FlagsArithm{
 				Flags: lit("r"),
 				X:     litWord("pattern"),
+			},
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{`${array[(i)]}`},
+		langFile(&ParamExp{
+			Param: lit("array"),
+			Index: &FlagsArithm{
+				Flags: lit("i"),
 			},
 		}, LangZsh),
 	),
@@ -2592,11 +2601,11 @@ var fileTests = []fileTestCase{
 			Param: lit("foo"),
 			Index: &BinaryArithm{
 				Op: Comma,
-				X: &ZshSubFlags{
+				X: &FlagsArithm{
 					Flags: lit("r"),
 					X:     litWord("ab"),
 				},
-				Y: &ZshSubFlags{
+				Y: &FlagsArithm{
 					Flags: lit("r"),
 					X:     litWord("cd"),
 				},
@@ -4883,6 +4892,35 @@ var fileTests = []fileTestCase{
 		langFile(litCall("echo", "*(om[1,5])"), LangZsh),
 	),
 	fileTest(
+		[]string{"echo /bin/sh(:t)"},
+		langFile(litCall("echo", "/bin/sh(:t)"), LangZsh),
+	),
+	// Zsh numeric range globs.
+	fileTest(
+		[]string{"echo <->"},
+		langFile(litCall("echo", "<->"), LangZsh),
+	),
+	fileTest(
+		[]string{"echo <5-10>"},
+		langFile(litCall("echo", "<5-10>"), LangZsh),
+	),
+	fileTest(
+		[]string{"echo foo<->.txt"},
+		langFile(litCall("echo", "foo<->.txt"), LangZsh),
+	),
+	fileTest(
+		[]string{"echo <5->.*"},
+		langFile(litCall("echo", "<5->.*"), LangZsh),
+	),
+	fileTest(
+		// <2-3 is a redirect, not a numeric range glob (no closing >).
+		[]string{"echo <2-3"},
+		langFile(&Stmt{
+			Cmd:    litCall("echo"),
+			Redirs: []*Redirect{{Op: RdrIn, Word: litWord("2-3")}},
+		}, LangZsh),
+	),
+	fileTest(
 		[]string{"@test \"desc\" { body; }"},
 		langFile(&TestDecl{
 			Description: word(dblQuoted(lit("desc"))),
@@ -5272,7 +5310,7 @@ func (c sanityChecker) visit(node Node) bool {
 	case *ParenArithm:
 		c.checkPos(node, node.Lparen, "(")
 		c.checkPos(node, node.Rparen, ")")
-	case *ZshSubFlags:
+	case *FlagsArithm:
 	case *ParenTest:
 		c.checkPos(node, node.Lparen, "(")
 		c.checkPos(node, node.Rparen, ")")

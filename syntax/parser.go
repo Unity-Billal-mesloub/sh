@@ -1743,8 +1743,8 @@ func (p *Parser) eitherIndex() ArithmExpr {
 	return expr
 }
 
-func (p *Parser) zshSubFlags() *ZshSubFlags {
-	zf := &ZshSubFlags{}
+func (p *Parser) zshSubFlags() *FlagsArithm {
+	zf := &FlagsArithm{}
 	// Lex flags as raw text, like paramExp does for ${(flags)...}.
 	lparen := p.pos
 	old := p.quote
@@ -2364,7 +2364,7 @@ func (p *Parser) forClause(s *Stmt) {
 func (p *Parser) loop(fpos Pos) Loop {
 	switch p.tok {
 	case leftParen, dblLeftParen:
-		p.checkLang(p.pos, langBashLike, "c-style fors")
+		p.checkLang(p.pos, langBashLike|LangZsh, "c-style fors")
 	}
 	if p.tok == dblLeftParen {
 		cl := &CStyleLoop{Lparen: p.pos}

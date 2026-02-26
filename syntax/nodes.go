@@ -492,6 +492,7 @@ type FuncDecl struct {
 
 	// Only one of these is set at a time.
 	// Neither is set when declaring an anonymous func with [LangZsh].
+	// TODO(v4): join these, even if it's mildly annoying to non-Zsh users.
 	Name  *Lit
 	Names []*Lit // When declaring many func names with [LangZsh].
 
@@ -627,6 +628,9 @@ type ParamExp struct {
 	Index ArithmExpr // ${a[i]}, ${a["k"]}, or a ${a[i,j]} slice with [LangZsh]
 
 	// Only one of these is set at a time.
+	// TODO(v4): consider joining these in a single "expansion" field/type,
+	// because it should be impossible for multiple to be set at once,
+	// and a flat structure like this takes up more space.
 	Modifiers []*Lit           // ${a:h2} with [LangZsh]
 	Slice     *Slice           // ${a:x:y}
 	Repl      *Replace         // ${a/x/y}
@@ -720,7 +724,7 @@ func (a *ArithmCmd) End() Pos { return posAddCol(a.Right, 2) }
 
 // ArithmExpr represents all nodes that form arithmetic expressions.
 //
-// These are [*BinaryArithm], [*UnaryArithm], [*ParenArithm], [*ZshSubFlags], and [*Word].
+// These are [*BinaryArithm], [*UnaryArithm], [*ParenArithm], [*FlagsArithm], and [*Word].
 type ArithmExpr interface {
 	Node
 	arithmExprNode()
@@ -729,7 +733,7 @@ type ArithmExpr interface {
 func (*BinaryArithm) arithmExprNode() {}
 func (*UnaryArithm) arithmExprNode()  {}
 func (*ParenArithm) arithmExprNode()  {}
-func (*ZshSubFlags) arithmExprNode()  {}
+func (*FlagsArithm) arithmExprNode()  {}
 func (*Word) arithmExprNode()         {}
 
 // BinaryArithm represents a binary arithmetic expression.
@@ -785,15 +789,22 @@ type ParenArithm struct {
 func (p *ParenArithm) Pos() Pos { return p.Lparen }
 func (p *ParenArithm) End() Pos { return posAddCol(p.Rparen, 1) }
 
-// ZshSubFlags represents zsh subscript flags attached to an index expression,
-// as in ${array[(flags)expr]}. Only valid with [LangZsh].
-type ZshSubFlags struct {
+// FlagsArithm represents zsh subscript flags attached to an arithmetic expression,
+// such as ${array[(flags)expr]}.
+//
+// This node will only appear with [LangZsh].
+type FlagsArithm struct {
 	Flags *Lit
 	X     ArithmExpr
 }
 
-func (z *ZshSubFlags) Pos() Pos { return posAddCol(z.Flags.Pos(), -1) }
-func (z *ZshSubFlags) End() Pos { return z.X.End() }
+func (z *FlagsArithm) Pos() Pos { return posAddCol(z.Flags.Pos(), -1) }
+func (z *FlagsArithm) End() Pos {
+	if z.X != nil {
+		return z.X.End()
+	}
+	return posAddCol(z.Flags.End(), 1) // closing paren
+}
 
 // CaseClause represents a case (switch) clause.
 type CaseClause struct {

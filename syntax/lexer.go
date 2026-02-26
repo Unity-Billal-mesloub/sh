@@ -286,6 +286,10 @@ skipSpace:
 	case p.quote&allRegTokens != 0:
 		switch r {
 		case ';', '"', '\'', '(', ')', '$', '|', '&', '>', '<', '`':
+			if r == '<' && p.lang.in(LangZsh) && p.zshNumRange() {
+				p.advanceLitNone(r)
+				return
+			}
 			p.tok = p.regToken(r)
 		case '#':
 			// If we're parsing $foo#bar, ${foo}#bar, 'foo'#bar, or "foo"#bar,
@@ -995,9 +999,36 @@ func (p *Parser) litBsGlob() bool {
 		switch b {
 		case '*', '?', '[':
 			return true
+		case '/':
+			// Paths like /bin/sh(:t) can also have glob qualifiers;
+			// function names never contain slashes.
+			return true
 		}
 	}
 	return false
+}
+
+// zshNumRange peeks at the bytes after '<' to check for a zsh numeric
+// range glob pattern like <->, <5->, <-10>, or <5-10>.
+func (p *Parser) zshNumRange() bool {
+	// Peeking a handful of bytes here should be enough.
+	// TODO: This should loop for slow readers, e.g. those providing one byte at
+	// a time. Use a loop and test it with [testing/iotest.OneByteReader].
+	if int(p.bsp) >= len(p.bs) {
+		p.fill()
+	}
+	rest := p.bs[p.bsp:]
+	for len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
+		rest = rest[1:]
+	}
+	if len(rest) == 0 || rest[0] != '-' {
+		return false
+	}
+	rest = rest[1:]
+	for len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
+		rest = rest[1:]
+	}
+	return len(rest) > 0 && rest[0] == '>'
 }
 
 func (p *Parser) advanceLitNone(r rune) {
@@ -1010,11 +1041,9 @@ loop:
 			break loop
 		case '(':
 			if p.lang.in(LangZsh) && p.litBsGlob() {
-				// Zsh glob qualifiers like *(.), **(/) or *(om[1,5]).
-				// Consume through ')' as part of the literal.
+				// Zsh glob qualifiers like *(.), **(/) or *(om[1,5]); consume until ')'.
 				for {
-					r = p.rune()
-					if r == utf8.RuneSelf || r == ')' {
+					if r = p.rune(); r == utf8.RuneSelf || r == ')' {
 						break
 					}
 				}
@@ -1024,6 +1053,15 @@ loop:
 		case '\\': // escaped byte follows
 			p.rune()
 		case '>', '<':
+			if r == '<' && p.lang.in(LangZsh) && p.zshNumRange() {
+				// Zsh numeric range glob like <-> or <1-100>; consume until '>'.
+				for {
+					if r = p.rune(); r == '>' || r == utf8.RuneSelf {
+						break
+					}
+				}
+				continue
+			}
 			if p.peek() == '(' {
 				tok = _Lit
 			} else if p.isLitRedir() {
