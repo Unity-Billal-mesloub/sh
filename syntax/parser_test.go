@@ -701,15 +701,18 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"foo(",
-		langErr("1:1: `foo(` must be followed by `)`"),
+		langErr("1:1: `foo(` must be followed by `)`", LangPOSIX|LangBash|LangMirBSDKorn|LangBats),
+		langErr("1:4: reached EOF without matching `(` with `)`", LangZsh),
 	),
 	errCase(
 		"foo(bar",
-		langErr("1:1: `foo(` must be followed by `)`"),
+		langErr("1:1: `foo(` must be followed by `)`", LangPOSIX|LangBash|LangMirBSDKorn|LangBats),
+		langErr("1:4: reached EOF without matching `(` with `)`", LangZsh),
 	),
 	errCase(
 		"à(",
-		langErr("1:1: `foo(` must be followed by `)`"),
+		langErr("1:1: `foo(` must be followed by `)`", LangPOSIX|LangBash|LangMirBSDKorn|LangBats),
+		langErr("1:3: reached EOF without matching `(` with `)`", LangZsh),
 	),
 	errCase(
 		"foo'",
@@ -755,7 +758,8 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"echo foo(",
-		langErr("1:9: a command can only contain words and redirects; encountered `(`"),
+		langErr("1:9: a command can only contain words and redirects; encountered `(`", LangPOSIX|LangBash|LangMirBSDKorn|LangBats),
+		langErr("1:9: reached EOF without matching `(` with `)`", LangZsh),
 	),
 	errCase(
 		"echo &&",
@@ -990,6 +994,7 @@ var errorCases = []errorCase{
 	errCase(
 		"for i in 1 2 (",
 		langErr("1:14: word list can only contain words"),
+		langErr("1:14: reached EOF without matching `(` with `)`", LangZsh),
 	),
 	errCase(
 		"for i in 1 2 3; do echo $i;",
@@ -1228,7 +1233,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"echo $$(foo)",
-		langErr("1:8: a command can only contain words and redirects; encountered `(`"),
+		langErr("1:8: a command can only contain words and redirects; encountered `(`", LangPOSIX|LangBash|LangMirBSDKorn|LangBats),
 	),
 	errCase(
 		"echo ${##",
@@ -1659,7 +1664,8 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"local (",
-		langErr("1:7: `local` must be followed by names or assignments", LangBash|LangZsh),
+		langErr("1:7: `local` must be followed by names or assignments", LangBash),
+		langErr("1:7: reached EOF without matching `(` with `)`", LangZsh),
 	),
 	errCase(
 		"declare 0=${o})",
@@ -1667,7 +1673,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"declare {x,y}=(1 2)",
-		langErr("1:15: `declare` must be followed by names or assignments", LangBash|LangZsh),
+		langErr("1:15: `declare` must be followed by names or assignments", LangBash),
 	),
 	errCase(
 		"a=(<)",
@@ -1688,7 +1694,7 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"a[i]=(y)",
-		langErr("1:5: arrays cannot be nested", LangBash|LangZsh),
+		langErr("1:5: arrays cannot be nested", LangBash),
 	),
 	errCase(
 		"a=([i]=(y))",
@@ -1981,11 +1987,11 @@ var errorCases = []errorCase{
 	),
 	errCase(
 		"echo !(a)",
-		langErr("1:6: extended globs are a bash/mksh feature; tried parsing as LANG", LangPOSIX|LangZsh),
+		langErr("1:6: extended globs are a bash/mksh feature; tried parsing as LANG", LangPOSIX),
 	),
 	errCase(
 		"echo $a@(b)",
-		langErr("1:8: extended globs are a bash/mksh feature; tried parsing as LANG", LangPOSIX|LangZsh),
+		langErr("1:8: extended globs are a bash/mksh feature; tried parsing as LANG", LangPOSIX),
 	),
 	errCase(
 		"foo=(1 2)",

@@ -778,6 +778,17 @@ var fileTests = []fileTestCase{
 		}, LangMirBSDKorn),
 	),
 	fileTest(
+		[]string{"foo &|", "foo &!"},
+		langFile(&Stmt{Cmd: litCall("foo"), Disown: true}, LangZsh),
+	),
+	fileTest(
+		[]string{"foo &|\nbar"},
+		langFile([]*Stmt{
+			{Cmd: litCall("foo"), Disown: true},
+			litStmt("bar"),
+		}, LangZsh),
+	),
+	fileTest(
 		[]string{
 			"foo() {\n\ta\n\tb\n}",
 			"foo() { a; b; }",
@@ -1689,18 +1700,45 @@ var fileTests = []fileTestCase{
 		}),
 	),
 	fileTest(
-		[]string{"foo >!a >>|b >>!c &>|d &>!e &>>|f &>>!g"},
-		langErr2("1:5: `>!` redirects are a zsh feature; tried parsing as LANG"),
+		[]string{"foo >>|a &>|b &>>|c"},
+		langErr2("1:5: `>>|` redirects are a zsh feature; tried parsing as LANG"),
 		langFile(&Stmt{
 			Cmd: litCall("foo"),
 			Redirs: []*Redirect{
-				{Op: RdrTrunc, Word: litWord("a")},
+				{Op: AppClob, Word: litWord("a")},
+				{Op: RdrAllClob, Word: litWord("b")},
+				{Op: AppAllClob, Word: litWord("c")},
+			},
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{
+			"foo >|a >>|b &>|c &>>|d",
+			"foo >!a >>!b &>!c &>>!d",
+		},
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{
+				{Op: RdrClob, Word: litWord("a")},
 				{Op: AppClob, Word: litWord("b")},
-				{Op: AppTrunc, Word: litWord("c")},
-				{Op: RdrAllClob, Word: litWord("d")},
-				{Op: RdrAllTrunc, Word: litWord("e")},
-				{Op: AppAllClob, Word: litWord("f")},
-				{Op: AppAllTrunc, Word: litWord("g")},
+				{Op: RdrAllClob, Word: litWord("c")},
+				{Op: AppAllClob, Word: litWord("d")},
+			},
+		}, LangZsh),
+	),
+	fileTest(
+		[]string{
+			"foo &>|a &>>c &>>|d",
+			"foo >&|a >>&c >>&|d",
+			"foo &>!a >>&c >>&!d",
+			"foo >&!a >>&c >>&!d",
+		},
+		langFile(&Stmt{
+			Cmd: litCall("foo"),
+			Redirs: []*Redirect{
+				{Op: RdrAllClob, Word: litWord("a")},
+				{Op: AppAll, Word: litWord("c")},
+				{Op: AppAllClob, Word: litWord("d")},
 			},
 		}, LangZsh),
 	),
@@ -2483,14 +2521,43 @@ var fileTests = []fileTestCase{
 		}),
 	),
 	fileTest(
-		[]string{"foo=force_expansion\n${foo:#bar}"},
-		langErr2("2:6: ${name:#arg} is a zsh feature; tried parsing as LANG"),
+		[]string{"foo=force_expansion\necho ${foo:#bar}"},
+		langErr2("2:11: ${name:#arg} is a zsh feature; tried parsing as LANG"),
 		langFile(stmts(
 			&CallExpr{Assigns: litAssigns("foo=force_expansion")},
-			call(word(&ParamExp{
+			call(litWord("echo"), word(&ParamExp{
 				Param: lit("foo"),
 				Exp: &Expansion{
 					Op:   MatchEmpty,
+					Word: litWord("bar"),
+				},
+			})),
+		), LangZsh),
+		flipConfirm2(LangMirBSDKorn), // TODO: why is this a valid substitution in mksh?
+	),
+	fileTest(
+		[]string{"foo=force_expansion\necho ${foo:|bar}"},
+		langErr2("2:11: ${name:|arg} is a zsh feature; tried parsing as LANG"),
+		langFile(stmts(
+			&CallExpr{Assigns: litAssigns("foo=force_expansion")},
+			call(litWord("echo"), word(&ParamExp{
+				Param: lit("foo"),
+				Exp: &Expansion{
+					Op:   ArrayExclude,
+					Word: litWord("bar"),
+				},
+			})),
+		), LangZsh),
+	),
+	fileTest(
+		[]string{"foo=force_expansion\necho ${foo:*bar}"},
+		langErr2("2:11: ${name:*arg} is a zsh feature; tried parsing as LANG"),
+		langFile(stmts(
+			&CallExpr{Assigns: litAssigns("foo=force_expansion")},
+			call(litWord("echo"), word(&ParamExp{
+				Param: lit("foo"),
+				Exp: &Expansion{
+					Op:   ArrayIntersect,
 					Word: litWord("bar"),
 				},
 			})),
@@ -3933,6 +4000,22 @@ var fileTests = []fileTestCase{
 		}}, LangBash|LangMirBSDKorn|LangZsh),
 	),
 	fileTest(
+		[]string{`[[ a == (b|c)* ]]`},
+		langFile(&TestClause{X: &BinaryTest{
+			Op: TsMatch,
+			X:  litWord("a"),
+			Y:  word(lit("(b|c)"), lit("*")),
+		}}, LangZsh),
+	),
+	fileTest(
+		[]string{`[[ a == (#i)bar ]]`},
+		langFile(&TestClause{X: &BinaryTest{
+			Op: TsMatch,
+			X:  litWord("a"),
+			Y:  word(lit("(#i)"), lit("bar")),
+		}}, LangZsh),
+	),
+	fileTest(
 		[]string{`[[ a =~ -n ]]`},
 		langFile(&TestClause{X: &BinaryTest{
 			Op: TsReMatch,
@@ -4635,6 +4718,14 @@ var fileTests = []fileTestCase{
 		}}}, LangBash|LangMirBSDKorn|LangZsh),
 	),
 	fileTest(
+		[]string{"a[1]=(b c)"},
+		langFile(&CallExpr{Assigns: []*Assign{{
+			Name:  lit("a"),
+			Index: litWord("1"),
+			Array: arrValues(litWords("b", "c")...),
+		}}}, LangZsh),
+	),
+	fileTest(
 		[]string{"a[2]=b c[-3]= d[x]+=e"},
 		langFile(litStmt("a[2]=b", "c[-3]=", "d[x]+=e"), LangPOSIX),
 		langFile(&CallExpr{Assigns: []*Assign{
@@ -4849,6 +4940,13 @@ var fileTests = []fileTestCase{
 			&ExtGlob{Op: GlobOne, Pattern: lit("e")},
 			&ExtGlob{Op: GlobExcept, Pattern: lit("f")},
 		)), LangBash|LangMirBSDKorn),
+		langFile(call(litWord("echo"), word(
+			lit("?"), lit("(b)"),
+			lit("*"), lit("(c)"),
+			lit("+"), lit("(d)"),
+			lit("@"), lit("(e)"),
+			lit("!"), lit("(f)"),
+		)), LangZsh),
 	),
 	fileTest(
 		[]string{"echo foo@(b*(c|d))bar"},
@@ -4874,26 +4972,47 @@ var fileTests = []fileTestCase{
 			litParamExp("k"),
 		)), LangBash|LangMirBSDKorn),
 	),
-	// Zsh glob qualifiers are parsed as part of the literal.
+	// Zsh glob qualifiers are parsed as part of the word.
 	fileTest(
 		[]string{"echo *(.)"},
-		langFile(litCall("echo", "*(.)"), LangZsh),
+		langFile(call(litWord("echo"), word(lit("*"), lit("(.)"))), LangZsh),
 	),
 	fileTest(
 		[]string{"echo **(/)"},
-		langFile(litCall("echo", "**(/)"), LangZsh),
+		langFile(call(litWord("echo"), word(lit("**"), lit("(/)"))), LangZsh),
 	),
 	fileTest(
 		[]string{"echo *.txt(@)"},
-		langFile(litCall("echo", "*.txt(@)"), LangZsh),
+		langFile(call(litWord("echo"), word(lit("*.txt"), lit("(@)"))), LangZsh),
 	),
 	fileTest(
 		[]string{"echo *(om[1,5])"},
-		langFile(litCall("echo", "*(om[1,5])"), LangZsh),
+		langFile(call(litWord("echo"), word(lit("*"), lit("(om[1,5])"))), LangZsh),
 	),
 	fileTest(
 		[]string{"echo /bin/sh(:t)"},
-		langFile(litCall("echo", "/bin/sh(:t)"), LangZsh),
+		langFile(call(litWord("echo"), word(lit("/bin/sh"), lit("(:t)"))), LangZsh),
+	),
+	// Zsh glob qualifiers on words without glob metacharacters or slashes.
+	fileTest(
+		[]string{"echo .(:a)"},
+		langFile(call(litWord("echo"), word(lit("."), lit("(:a)"))), LangZsh),
+	),
+	fileTest(
+		[]string{"echo ~(:t)"},
+		langFile(call(litWord("echo"), word(lit("~"), lit("(:t)"))), LangZsh),
+	),
+	fileTest(
+		[]string{`echo {go.mod,shfmt}(N*)`},
+		langFile(call(litWord("echo"), word(lit("{go.mod,shfmt}"), lit("(N*)"))), LangZsh),
+	),
+	fileTest(
+		[]string{"echo $var(Nms-3)"},
+		langFile(call(litWord("echo"), word(litParamExp("var"), lit("(Nms-3)"))), LangZsh),
+	),
+	fileTest(
+		[]string{"echo a(A) b(B)"},
+		langFile(call(litWord("echo"), word(lit("a"), lit("(A)")), word(lit("b"), lit("(B)"))), LangZsh),
 	),
 	// Zsh numeric range globs.
 	fileTest(
@@ -4937,7 +5056,7 @@ var fileTests = []fileTestCase{
 	fileTest(
 		[]string{"${+foo}"},
 		langFile(&ParamExp{
-			Plus:  true,
+			IsSet: true,
 			Param: lit("foo"),
 		}, LangZsh),
 	),
@@ -4946,7 +5065,7 @@ var fileTests = []fileTestCase{
 		langFile(call(
 			word(&ParamExp{
 				Short: true,
-				Plus:  true,
+				IsSet: true,
 				Param: lit("foo"),
 			}),
 			word(&ParamExp{
@@ -5187,7 +5306,22 @@ func (c sanityChecker) visit(node Node) bool {
 			c.checkPos(node, node.Semicolon, ";", "&", "|&")
 		}
 		for _, r := range node.Redirs {
-			c.checkPos(node, r.OpPos, r.Op.String())
+			strs := []string{r.Op.String()}
+			// Zsh supports alternate forms of redirect operators:
+			// ! instead of |, and >& or >>& prefixes instead of &> and &>>.
+			switch r.Op {
+			case RdrClob:
+				strs = append(strs, ">!")
+			case AppClob:
+				strs = append(strs, ">>!")
+			case RdrAllClob:
+				strs = append(strs, "&>!", ">&|", ">&!")
+			case AppAll:
+				strs = append(strs, ">>&")
+			case AppAllClob:
+				strs = append(strs, "&>>!", ">>&|", ">>&!")
+			}
+			c.checkPos(node, r.OpPos, strs...)
 		}
 	case *Lit:
 		pos, end := int(node.Pos().Offset()), int(node.End().Offset())

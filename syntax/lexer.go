@@ -403,14 +403,11 @@ skipSpace:
 // For example, whether `*` or `@` are followed by `(` to form `@(foo)`.
 func (p *Parser) extendedGlob() bool {
 	if p.lang.in(LangZsh) {
-		// Zsh doesn't have extended globs like bash/mksh.
-		// We still tokenize +( @( !( so the parser can give a clear error,
-		// but not *( or ?( as those are used in zsh glob qualifiers.
-		switch p.r {
-		case '+', '@', '!':
-		default:
-			return false
-		}
+		// Zsh supports Bash extended globs via the KSH_GLOB option.
+		// In Bash we would parse extended globs as [ExtGlob] nodes,
+		// but trying to do that in Zsh would cause ambiguity with glob qualifiers.
+		// Just like glob qualifiers, parse extended globs as literals in Zsh.
+		return false
 	}
 	if p.val == "function" {
 		// We don't support e.g. `function @() { ... }` at the moment, but we could.
@@ -477,20 +474,34 @@ func (p *Parser) regToken(r rune) token {
 				p.rune()
 				return rdrAllClob
 			case '!':
-				p.rune()
-				return rdrAllTrunc
+				if p.lang.in(LangZsh) {
+					p.rune()
+					return rdrAllClob
+				}
 			case '>':
 				switch p.rune() {
 				case '|':
 					p.rune()
 					return appAllClob
 				case '!':
-					p.rune()
-					return appAllTrunc
+					if p.lang.in(LangZsh) {
+						p.rune()
+						return appAllClob
+					}
 				}
 				return appAll
 			}
 			return rdrAll
+		case '|':
+			if p.lang.in(LangZsh) {
+				p.rune()
+				return andPipe
+			}
+		case '!':
+			if p.lang.in(LangZsh) {
+				p.rune()
+				return andBang
+			}
 		}
 		return and
 	case '|':
@@ -572,10 +583,11 @@ func (p *Parser) regToken(r rune) token {
 	case '<':
 		switch p.rune() {
 		case '<':
-			if r = p.rune(); r == '-' {
+			switch p.rune() {
+			case '-':
 				p.rune()
 				return dashHdoc
-			} else if r == '<' {
+			case '<':
 				p.rune()
 				return wordHdoc
 			}
@@ -602,19 +614,46 @@ func (p *Parser) regToken(r rune) token {
 				p.rune()
 				return appClob
 			case '!':
-				p.rune()
-				return appTrunc
+				if p.lang.in(LangZsh) {
+					p.rune()
+					return appClob
+				}
+			case '&':
+				if !p.lang.in(LangZsh) {
+					break
+				}
+				switch p.rune() {
+				case '|':
+					p.rune()
+					return appAllClob // >>&| is an alias for &>>|
+				case '!':
+					p.rune()
+					return appAllClob // >>&! is an alias for &>>|
+				}
+				return appAll // >>& is an alias for &>>
 			}
 			return appOut
 		case '&':
-			p.rune()
+			r = p.rune()
+			if p.lang.in(LangZsh) {
+				switch r {
+				case '|':
+					p.rune()
+					return rdrAllClob // >&| is an alias for &>|
+				case '!':
+					p.rune()
+					return rdrAllClob // >&! is an alias for &>|
+				}
+			}
 			return dplOut
 		case '|':
 			p.rune()
 			return rdrClob
 		case '!':
-			p.rune()
-			return rdrTrunc
+			if p.lang.in(LangZsh) {
+				p.rune()
+				return rdrClob
+			}
 		case '(':
 			if !p.lang.in(langBashLike | LangZsh) {
 				break
@@ -681,6 +720,12 @@ func (p *Parser) paramToken(r rune) token {
 		case '#':
 			p.rune()
 			return colHash
+		case '|':
+			p.rune()
+			return colPipe
+		case '*':
+			p.rune()
+			return colStar
 		}
 		return colon
 	case '+':
@@ -991,23 +1036,6 @@ loop:
 	p.tok, p.val = tok, p.endLit()
 }
 
-// litBsGlob reports whether the literal bytes accumulated so far
-// contain a glob metacharacter, excluding the last byte which is '('.
-func (p *Parser) litBsGlob() bool {
-	// Exclude the last byte which is the '(' that triggered this check.
-	for _, b := range p.litBs[:len(p.litBs)-1] {
-		switch b {
-		case '*', '?', '[':
-			return true
-		case '/':
-			// Paths like /bin/sh(:t) can also have glob qualifiers;
-			// function names never contain slashes.
-			return true
-		}
-	}
-	return false
-}
-
 // zshNumRange peeks at the bytes after '<' to check for a zsh numeric
 // range glob pattern like <->, <5->, <-10>, or <5-10>.
 func (p *Parser) zshNumRange() bool {
@@ -1040,15 +1068,6 @@ loop:
 		case ' ', '\t', '\n', '\r', '&', '|', ';', ')':
 			break loop
 		case '(':
-			if p.lang.in(LangZsh) && p.litBsGlob() {
-				// Zsh glob qualifiers like *(.), **(/) or *(om[1,5]); consume until ')'.
-				for {
-					if r = p.rune(); r == utf8.RuneSelf || r == ')' {
-						break
-					}
-				}
-				continue
-			}
 			break loop
 		case '\\': // escaped byte follows
 			p.rune()

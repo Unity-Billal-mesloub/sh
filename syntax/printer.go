@@ -744,7 +744,7 @@ func (p *Printer) paramExp(pe *ParamExp) {
 		p.w.WriteByte('#')
 	case pe.Width:
 		p.w.WriteByte('%')
-	case pe.Plus:
+	case pe.IsSet:
 		p.w.WriteByte('+')
 	case pe.Excl:
 		p.w.WriteByte('!')
@@ -1083,7 +1083,7 @@ func (p *Printer) stmt(s *Stmt) {
 		}
 	}
 	sep := s.Semicolon.IsValid() && s.Semicolon.Line() > p.line && !p.singleLine
-	if sep || s.Background || s.Coprocess {
+	if sep || s.Background || s.Coprocess || s.Disown {
 		if sep {
 			p.bslashNewl()
 		} else if !p.minify {
@@ -1093,6 +1093,8 @@ func (p *Printer) stmt(s *Stmt) {
 			p.w.WriteString("&")
 		} else if s.Coprocess {
 			p.w.WriteString("|&")
+		} else if s.Disown {
+			p.w.WriteString("&|")
 		} else {
 			p.w.WriteString(";")
 		}

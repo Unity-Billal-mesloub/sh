@@ -26,6 +26,8 @@ func KeepComments(enabled bool) ParserOption {
 
 // LangVariant describes a shell language variant to use when tokenizing and
 // parsing shell code. The zero value is [LangBash].
+//
+// This type implements [flag.Value] so that it can be used as a CLI flag.
 type LangVariant int
 
 // TODO(v4): the zero value should be left as an unset and invalid value.
@@ -994,9 +996,11 @@ type LangError struct {
 func (e LangError) Error() string {
 	var sb strings.Builder
 	if e.Filename != "" {
-		sb.WriteString(e.Filename + ":")
+		sb.WriteString(e.Filename)
+		sb.WriteString(":")
 	}
-	sb.WriteString(e.Pos.String() + ": ")
+	sb.WriteString(e.Pos.String())
+	sb.WriteString(": ")
 	sb.WriteString(e.Feature)
 	if strings.HasSuffix(e.Feature, "s") {
 		sb.WriteString(" are a ")
@@ -1135,7 +1139,7 @@ func (p *Parser) stmtList(stops ...string) ([]*Stmt, []Comment) {
 
 func (p *Parser) invalidStmtStart() {
 	switch p.tok {
-	case semicolon, and, or, andAnd, orOr:
+	case semicolon, and, or, andAnd, orOr, andPipe, andBang:
 		p.curErr("%#q can only immediately follow a statement", p.tok)
 	case rightParen:
 		p.curErr("%#q can only be used to close a subshell", p.tok)
@@ -1336,6 +1340,26 @@ func (p *Parser) wordPart() WordPart {
 			}
 		}
 		return cs
+	case leftParen:
+		if p.lang.in(LangZsh) && p.r != ')' {
+			// Zsh glob qualifier like *(N) or .(:a); the only case where
+			// ( immediately after a word is not a glob qualifier is ()
+			// for a function declaration, which the parser handles earlier.
+			pos := p.pos
+			p.pos = p.nextPos()
+			for p.newLit(p.r); p.r != utf8.RuneSelf && p.r != ')'; p.rune() {
+			}
+			if p.r != ')' {
+				p.tok = _EOF // we can only get here due to EOF
+				p.matchingErr(pos, leftParen, rightParen)
+			}
+			p.rune()
+			p.val = p.endLit()
+			l := p.lit(pos, "("+p.val)
+			p.next()
+			return l
+		}
+		return nil
 	case globQuest, globStar, globPlus, globAt, globExcl:
 		p.checkLang(p.pos, langBashLike|LangMirBSDKorn, "extended globs")
 		eg := &ExtGlob{Op: GlobOperator(p.tok), OpPos: p.pos}
@@ -1420,10 +1444,7 @@ func (p *Parser) paramExp() *ParamExp {
 		lparen := p.nextPos()
 		p.rune()
 		p.pos = p.nextPos()
-		for p.newLit(p.r); p.r != utf8.RuneSelf; p.rune() {
-			if p.r == ')' {
-				break
-			}
+		for p.newLit(p.r); p.r != utf8.RuneSelf && p.r != ')'; p.rune() {
 		}
 		p.val = p.endLit()
 		if p.r != ')' {
@@ -1457,7 +1478,7 @@ func (p *Parser) paramExp() *ParamExp {
 		case '+':
 			if r := p.peek(); r == utf8.RuneSelf || singleRuneParam(r) || paramNameRune(r) || r == '"' {
 				p.checkLang(pe.Pos(), LangZsh, "`${+foo}`")
-				pe.Plus = true
+				pe.IsSet = true
 				p.rune()
 			}
 		}
@@ -1498,7 +1519,7 @@ func (p *Parser) paramExp() *ParamExp {
 		p.next()
 		return pe
 	}
-	if p.tok != _EOF && (pe.Length || pe.Width || pe.Plus) {
+	if p.tok != _EOF && (pe.Length || pe.Width || pe.IsSet) {
 		p.curErr("cannot combine multiple parameter expansion operators")
 	}
 	switch p.tok {
@@ -1573,7 +1594,7 @@ func (p *Parser) paramExp() *ParamExp {
 			pe.Exp = p.paramExpExp()
 		}
 	case plus, colPlus, minus, colMinus, quest, colQuest, assgn, colAssgn,
-		perc, dblPerc, hash, dblHash, colHash:
+		perc, dblPerc, hash, dblHash, colHash, colPipe, colStar:
 		pe.Exp = p.paramExpExp()
 	case _EOF:
 	default:
@@ -1705,7 +1726,7 @@ func (p *Parser) paramExpParameter(pe *ParamExp) *ParamExp {
 func (p *Parser) paramExpExp() *Expansion {
 	op := ParExpOperator(p.tok)
 	switch op {
-	case MatchEmpty:
+	case MatchEmpty, ArrayExclude, ArrayIntersect:
 		p.checkLang(p.pos, LangZsh, "${name%sarg}", op)
 	}
 	p.quote = paramExpExp
@@ -1750,10 +1771,7 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 	old := p.quote
 	p.quote = runeByRune
 	p.pos = p.nextPos()
-	for p.newLit(p.r); p.r != utf8.RuneSelf; p.rune() {
-		if p.r == ')' {
-			break
-		}
+	for p.newLit(p.r); p.r != utf8.RuneSelf && p.r != ')'; p.rune() {
 	}
 	p.val = p.endLit()
 	if p.r != ')' {
@@ -1774,8 +1792,8 @@ func (p *Parser) zshSubFlags() *FlagsArithm {
 
 func (p *Parser) stopToken() bool {
 	switch p.tok {
-	case _EOF, _Newl, semicolon, and, or, andAnd, orOr, orAnd, dblSemicolon,
-		semiAnd, dblSemiAnd, semiOr, rightParen:
+	case _EOF, _Newl, semicolon, and, or, andAnd, orOr, orAnd, andPipe, andBang,
+		dblSemicolon, semiAnd, dblSemiAnd, semiOr, rightParen:
 		return true
 	case bckQuote:
 		return p.backquoteEnd()
@@ -1865,26 +1883,34 @@ func (p *Parser) getAssign(needEqual bool) *Assign {
 			}
 		}
 		if p.tok == assgnParen {
-			p.curErr("arrays cannot be nested")
-			return nil
-		}
-		if len(p.val) > 0 && p.val[0] == '+' {
-			as.Append = true
-			p.val = p.val[1:]
-			p.pos = posAddCol(p.pos, 1)
-		}
-		if len(p.val) < 1 || p.val[0] != '=' {
-			if as.Append {
-				p.followErr(as.Pos(), "a[b]+", assgn)
-			} else {
-				p.followErr(as.Pos(), "a[b]", assgn)
+			if !p.lang.in(LangZsh) {
+				p.curErr("arrays cannot be nested")
+				return nil
 			}
-			return nil
-		}
-		p.pos = posAddCol(p.pos, 1)
-		p.val = p.val[1:]
-		if p.val == "" {
-			p.next()
+			// zsh allows a[i]=(values...).
+			// assgnParen consumed both '=' and '(',
+			// so rewrite as leftParen for array parsing below.
+			p.tok = leftParen
+			p.pos = posAddCol(p.pos, 1)
+		} else {
+			if len(p.val) > 0 && p.val[0] == '+' {
+				as.Append = true
+				p.val = p.val[1:]
+				p.pos = posAddCol(p.pos, 1)
+			}
+			if len(p.val) < 1 || p.val[0] != '=' {
+				if as.Append {
+					p.followErr(as.Pos(), "a[b]+", assgn)
+				} else {
+					p.followErr(as.Pos(), "a[b]", assgn)
+				}
+				return nil
+			}
+			p.pos = posAddCol(p.pos, 1)
+			p.val = p.val[1:]
+			if p.val == "" {
+				p.next()
+			}
 		}
 	}
 	if p.spaced || p.stopToken() {
@@ -1947,8 +1973,8 @@ func (p *Parser) getAssign(needEqual bool) *Assign {
 func (p *Parser) peekRedir() bool {
 	switch p.tok {
 	case _LitRedir, rdrOut, appOut, rdrIn, rdrInOut, dplIn, dplOut,
-		rdrClob, rdrTrunc, appClob, appTrunc, hdoc, dashHdoc, wordHdoc,
-		rdrAll, rdrAllClob, rdrAllTrunc, appAll, appAllClob, appAllTrunc:
+		rdrClob, appClob, hdoc, dashHdoc, wordHdoc,
+		rdrAll, rdrAllClob, appAll, appAllClob:
 		return true
 	}
 	return false
@@ -1976,7 +2002,7 @@ func (p *Parser) doRedirect(s *Stmt) {
 	switch r.Op {
 	case RdrAll, AppAll:
 		p.checkLang(p.pos, langBashLike|LangMirBSDKorn|LangZsh, "%#q redirects", r.Op)
-	case RdrTrunc, AppClob, AppTrunc, RdrAllClob, RdrAllTrunc, AppAllClob, AppAllTrunc:
+	case AppClob, RdrAllClob, AppAllClob:
 		p.checkLang(p.pos, LangZsh, "%#q redirects", r.Op)
 	}
 	p.next()
@@ -2060,6 +2086,10 @@ func (p *Parser) getStmt(readEnd, binCmd, fnBody bool) *Stmt {
 			s.Semicolon = p.pos
 			p.next()
 			s.Coprocess = true
+		case andPipe, andBang:
+			s.Semicolon = p.pos
+			p.next()
+			s.Disown = true
 		}
 	}
 	if len(p.accComs) > 0 && !binCmd && !fnBody {
@@ -2165,14 +2195,22 @@ func (p *Parser) gotStmtPipe(s *Stmt, binCmd bool) *Stmt {
 			break
 		}
 		name := p.lit(p.pos, p.val)
-		if p.next(); p.got(leftParen) {
+		p.next()
+		// In zsh, ( after a word is a glob qualifier unless followed
+		// immediately by ), which is the func declaration syntax.
+		if p.tok == leftParen && (!p.lang.in(LangZsh) || p.r == ')') {
+			p.next()
 			p.follow(name.ValuePos, "foo(", rightParen)
 			if p.lang.in(LangPOSIX) && !ValidName(name.Value) {
 				p.posErr(name.Pos(), "invalid func name")
 			}
 			p.funcDecl(s, name.ValuePos, false, true, name)
 		} else {
-			p.callExpr(s, p.wordOne(name), false)
+			w := p.wordOne(name)
+			if p.lang.in(LangZsh) && !p.spaced {
+				w.Parts = append(w.Parts, p.wordParts(nil)...)
+			}
+			p.callExpr(s, w, false)
 		}
 	case bckQuote:
 		if p.backquoteEnd() {
@@ -2785,7 +2823,7 @@ func (p *Parser) callExpr(s *Stmt, w *Word, assign bool) {
 loop:
 	for {
 		switch p.tok {
-		case _EOF, _Newl, semicolon, and, or, andAnd, orOr, orAnd,
+		case _EOF, _Newl, semicolon, and, or, andAnd, orOr, orAnd, andPipe, andBang,
 			dblSemicolon, semiAnd, dblSemiAnd, semiOr:
 			break loop
 		case _LitWord:
@@ -2801,8 +2839,12 @@ loop:
 			if p.lang.in(LangZsh) && p.val == "}" {
 				break loop
 			}
-			ce.Args = append(ce.Args, p.wordOne(p.lit(p.pos, p.val)))
+			w := p.wordOne(p.lit(p.pos, p.val))
 			p.next()
+			if p.lang.in(LangZsh) && !p.spaced {
+				w.Parts = append(w.Parts, p.wordParts(nil)...)
+			}
+			ce.Args = append(ce.Args, w)
 		case _Lit:
 			if len(ce.Args) == 0 && p.hasValidIdent() {
 				ce.Assigns = append(ce.Assigns, p.getAssign(true))

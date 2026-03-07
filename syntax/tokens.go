@@ -24,11 +24,13 @@ const (
 	dblQuote // "
 	bckQuote // `
 
-	and    // &
-	andAnd // &&
-	orOr   // ||
-	or     // |
-	orAnd  // |&
+	and     // &
+	andAnd  // &&
+	orOr    // ||
+	or      // |
+	orAnd   // |&
+	andPipe // &|
+	andBang // &!
 
 	dollar       // $
 	dollSglQuote // $'
@@ -81,25 +83,21 @@ const (
 	xorBoolAssgn // ^^=
 	powAssgn     // **=
 
-	rdrOut      // >
-	appOut      // >>
-	rdrIn       // <
-	rdrInOut    // <>
-	dplIn       // <&
-	dplOut      // >&
-	rdrClob     // >|
-	rdrTrunc    // >!
-	appClob     // >>|
-	appTrunc    // >>!
-	hdoc        // <<
-	dashHdoc    // <<-
-	wordHdoc    // <<<
-	rdrAll      // &>
-	rdrAllClob  // &>|
-	rdrAllTrunc // &>!
-	appAll      // &>>
-	appAllClob  // &>>|
-	appAllTrunc // &>>!
+	rdrOut     // >
+	appOut     // >>
+	rdrIn      // <
+	rdrInOut   // <>
+	dplIn      // <&
+	dplOut     // >&
+	rdrClob    // >|
+	appClob    // >>|
+	hdoc       // <<
+	dashHdoc   // <<-
+	wordHdoc   // <<<
+	rdrAll     // &>
+	rdrAllClob // &>|
+	appAll     // &>>
+	appAllClob // &>>|
 
 	cmdIn      // <(
 	assgnParen // =(
@@ -118,6 +116,8 @@ const (
 	hash     // #
 	dblHash  // ##
 	colHash  // :#
+	colPipe  // :|
+	colStar  // :*
 	caret    // ^
 	dblCaret // ^^
 	comma    // ,
@@ -174,25 +174,21 @@ const (
 type RedirOperator token
 
 const (
-	RdrOut      = RedirOperator(rdrOut) + iota // >
-	AppOut                                     // >>
-	RdrIn                                      // <
-	RdrInOut                                   // <>
-	DplIn                                      // <&
-	DplOut                                     // >&
-	RdrClob                                    // >|
-	RdrTrunc                                   // >! with [LangZsh]
-	AppClob                                    // >>| with [LangZsh]
-	AppTrunc                                   // >>! with [LangZsh]
-	Hdoc                                       // <<
-	DashHdoc                                   // <<-
-	WordHdoc                                   // <<<
-	RdrAll                                     // &>
-	RdrAllClob                                 // &>| with [LangZsh]
-	RdrAllTrunc                                // &>! with [LangZsh]
-	AppAll                                     // &>>
-	AppAllClob                                 // &>>| with [LangZsh]
-	AppAllTrunc                                // &>>! with [LangZsh]
+	RdrOut     = RedirOperator(rdrOut) + iota // >
+	AppOut                                    // >>
+	RdrIn                                     // <
+	RdrInOut                                  // <>
+	DplIn                                     // <&
+	DplOut                                    // >&
+	RdrClob                                   // >|
+	AppClob                                   // >>| with [LangZsh]
+	Hdoc                                      // <<
+	DashHdoc                                  // <<-
+	WordHdoc                                  // <<<
+	RdrAll                                    // &>
+	RdrAllClob                                // &>| with [LangZsh]
+	AppAll                                    // &>>
+	AppAllClob                                // &>>| with [LangZsh]
 
 	// Deprecated: use [RdrClob]
 	//
@@ -259,6 +255,8 @@ const (
 	RemSmallPrefix                                     // #
 	RemLargePrefix                                     // ##
 	MatchEmpty                                         // :# with [LangZsh]
+	ArrayExclude                                       // :| with [LangZsh]
+	ArrayIntersect                                     // :* with [LangZsh]
 	UpperFirst                                         // ^
 	UpperAll                                           // ^^
 	LowerFirst                                         // ,
